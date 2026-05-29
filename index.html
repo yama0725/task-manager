@@ -92,6 +92,7 @@
         
         let timerInterval = null;
         let activeTaskId = null;
+        let lastTimestamp = null; 
 
         function getTodayString() {
             const now = new Date();
@@ -206,11 +207,9 @@
                 const timeString = formatSeconds(task.totalTime);
                 const recurringBadge = task.isRecurring ? '<span class="recurring-badge">毎日</span>' : '';
 
-                // 【修正ポイント1】現在計測中（running）のときだけ「開始」ボタンを無効化する
                 const isRunning = task.status === 'running';
                 const isCompleted = task.status === 'completed';
                 
-                // 終了状態ならボタンのテキストを「再開」にする
                 const startBtnText = isCompleted ? '再開' : '開始';
 
                 const item = document.createElement('div');
@@ -296,7 +295,6 @@
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
-                    // 【修正ポイント2】元の状態に合わせてログのテキストを綺麗に残す
                     let action = '開始';
                     if (t.status === 'paused') action = '再開';
                     if (t.status === 'completed') action = '終了から再開';
@@ -307,21 +305,32 @@
                 return t;
             });
             activeTaskId = id;
+            
+            lastTimestamp = Date.now(); 
             saveAndRender();
 
             clearInterval(timerInterval);
             timerInterval = setInterval(() => {
-                tasks = tasks.map(t => {
-                    if (t.id === activeTaskId) t.totalTime += 1;
-                    return t;
-                });
-                renderTasks();
-            }, 1000);
+                const currentTimestamp = Date.now();
+                // 【修正箇所】Math.roundではなくMath.floor(切り捨て)を使い、確実に1000ミリ秒(1秒)以上経過したときだけ秒数を加算
+                const deltaSeconds = Math.floor((currentTimestamp - lastTimestamp) / 1000);
+                
+                if (deltaSeconds >= 1) {
+                    tasks = tasks.map(t => {
+                        if (t.id === activeTaskId) t.totalTime += deltaSeconds;
+                        return t;
+                    });
+                    // 次の基準時間を「経過した秒数分」だけ正確に進める
+                    lastTimestamp += deltaSeconds * 1000; 
+                    renderTasks();
+                }
+            }, 200); // チェック頻度をさらに細かくし、カクつきをなくしつつ正確性を担保
         }
 
         function pauseTimer(id) {
             clearInterval(timerInterval);
             activeTaskId = null;
+            lastTimestamp = null;
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
@@ -336,6 +345,7 @@
         function stopTimer(id) {
             clearInterval(timerInterval);
             if (activeTaskId === id) activeTaskId = null;
+            lastTimestamp = null;
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
@@ -353,6 +363,7 @@
             if (activeTaskId === id) {
                 clearInterval(timerInterval);
                 activeTaskId = null;
+                lastTimestamp = null;
             }
             tasks = tasks.filter(t => t.id !== id);
             saveAndRender();
