@@ -90,12 +90,8 @@
         let tasks = JSON.parse(localStorage.getItem('myRoutineTasks')) || [];
         let lastOpenDate = localStorage.getItem('lastOpenDate') || "";
         
-        let timerInterval = null;
         let activeTaskId = null;
-        
-        // 端末格差をなくすための新しい管理変数
-        let startTimeStamp = null; 
-        let baseTotalTime = 0; 
+        let startTimeStamp = null; // 開始した瞬間のUnixタイムスタンプ(ミリ秒)
 
         function getTodayString() {
             const now = new Date();
@@ -111,7 +107,7 @@
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
             const s = totalSeconds % 60;
-            return `${h}時間${m}分${s}秒`;
+            return `${h}時間${m}分${s}秒経過`;
         }
 
         function checkDateChange() {
@@ -203,7 +199,8 @@
             todayTasks.forEach(task => {
                 let statusText = '未着手';
                 let statusClass = '';
-                if (task.status === 'running') { statusText = '計測中'; statusClass = 'status-running'; }
+                // リアルタイム計測はしないため「計測中」の時だけ文言を変更
+                if (task.status === 'running') { statusText = '作業中...'; statusClass = 'status-running'; }
                 if (task.status === 'paused') { statusText = '一時中断'; }
                 if (task.status === 'completed') { statusText = '完了'; statusClass = 'status-completed'; }
 
@@ -290,17 +287,14 @@
             saveAndRender();
         }
 
+        // 1. 開始ボタンを押したとき
         function startTimer(id) {
             if (activeTaskId && activeTaskId !== id) {
-                alert('他のタスクが計測中です。中断または終了させてください。');
+                alert('他のタスクを作業中です。中断または終了させてください。');
                 return;
             }
             const timeNow = getFormattedTime();
             
-            // 現在選択されたタスクの、これまでの合計時間をベースにする
-            const currentTask = tasks.find(t => t.id === id);
-            baseTotalTime = currentTask ? currentTask.totalTime : 0;
-
             tasks = tasks.map(t => {
                 if (t.id === id) {
                     let action = '開始';
@@ -314,53 +308,61 @@
             });
             activeTaskId = id;
             
-            // 【端末格差対策】開始ボタンを押した「絶対時刻」をミリ秒で完全ロック
+            // 開始した瞬間のシステム時刻をミリ秒で完全ロック
             startTimeStamp = Date.now(); 
             saveAndRender();
-
-            clearInterval(timerInterval);
-            timerInterval = setInterval(() => {
-                // 「現在の時刻」と「開始した時刻」の純粋な差分だけを計算する
-                const passedSeconds = Math.floor((Date.now() - startTimeStamp) / 1000);
-                
-                tasks = tasks.map(t => {
-                    if (t.id === activeTaskId) {
-                        // 開始時点の秒数に、正確な経過秒数を足す（ブラウザがサボってもズレない）
-                        t.totalTime = baseTotalTime + passedSeconds;
-                    }
-                    return t;
-                });
-                renderTasks();
-            }, 250); // 1秒間に4回高頻度リフレッシュし、表示を常に最新化
         }
 
+        // 2. 中断ボタンを押したとき
         function pauseTimer(id) {
-            clearInterval(timerInterval);
-            activeTaskId = null;
-            startTimeStamp = null;
+            if (!startTimeStamp) return;
+            
+            // 押した瞬間のシステム時刻から、作業していた秒数を計算
+            const currentTimestamp = Date.now();
+            const passedSeconds = Math.floor((currentTimestamp - startTimeStamp) / 1000);
+            
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
                     t.status = 'paused';
-                    t.logs.push(`${timeNow} [中断]`);
+                    t.totalTime += passedSeconds; // 確定した秒数を合計に加算
+                    t.logs.push(`${timeNow} [中断] (+${formatSeconds(passedSeconds)})`);
                 }
                 return t;
             });
+            
+            // 管理変数をリセット
+            activeTaskId = null;
+            startTimeStamp = null;
             saveAndRender();
         }
 
+        // 3. 終了ボタンを押したとき
         function stopTimer(id) {
-            clearInterval(timerInterval);
-            if (activeTaskId === id) activeTaskId = null;
-            startTimeStamp = null;
+            let passedSeconds = 0;
+            
+            // もし「作業中(running)」の状態から直接終了が押された場合は、その差分を計算する
+            if (startTimeStamp && activeTaskId === id) {
+                passedSeconds = Math.floor((Date.now() - startTimeStamp) / 1000);
+            }
+            
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
                     t.status = 'completed';
-                    t.logs.push(`${timeNow} [終了]`);
+                    t.totalTime += passedSeconds; // 確定した秒数を合計に加算
+                    if (passedSeconds > 0) {
+                        t.logs.push(`${timeNow} [終了] (+${formatSeconds(passedSeconds)})`);
+                    } else {
+                        t.logs.push(`${timeNow} [終了]`);
+                    }
                 }
                 return t;
             });
+            
+            // 管理変数をリセット
+            if (activeTaskId === id) activeTaskId = null;
+            startTimeStamp = null;
             saveAndRender();
         }
 
@@ -368,7 +370,6 @@
             event.stopPropagation();
             if (!confirm('このタスクを削除しますか？\n（今日のリストから消去されます）')) return;
             if (activeTaskId === id) {
-                clearInterval(timerInterval);
                 activeTaskId = null;
                 startTimeStamp = null;
             }
