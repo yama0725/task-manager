@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=no">
+    <title>Daily Task & Timer (Mobile & History Final)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 15px;
+            background-color: #f5f7fa;
+            color: #333;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        h1 { text-align: center; font-size: 22px; margin: 10px 0 20px 0; }
+
+        .input-container {
+            background: #fff; padding: 12px; border-radius: 12px; border: 1px solid #e1e4e8; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+        .input-row { display: flex; gap: 10px; margin-bottom: 8px; }
+        .input-row input[type="text"] { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; }
+        .input-row button { padding: 12px 20px; font-size: 16px; font-weight: bold; background-color: #007bff; color: white; border: none; border-radius: 8px; }
+        .checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #555; }
+        .checkbox-row input { width: 18px; height: 18px; cursor: pointer; }
+
+        .section-title { font-size: 16px; font-weight: bold; margin: 25px 0 10px 0; color: #555; padding-left: 5px; border-left: 4px solid #007bff; }
+
+        .task-item {
+            background: #fff; border: 1px solid #e1e4e8; border-radius: 12px; margin-bottom: 15px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+        .task-header { display: flex; justify-content: space-between; align-items: center; }
+        .task-title { font-weight: bold; font-size: 18px; flex: 1; padding-right: 10px; }
+        .recurring-badge { font-size: 11px; background: #e2f0fd; color: #0056b3; padding: 2px 6px; border-radius: 4px; margin-left: 5px; vertical-align: middle; }
+        .header-right { display: flex; align-items: center; gap: 10px; }
+        .task-status { font-size: 13px; padding: 4px 8px; border-radius: 6px; background: #eee; font-weight: bold; }
+        .status-running { background: #e3fcef; color: #006644; }
+        .status-completed { background: #f4f5f7; color: #5e6c84; text-decoration: line-through; }
+
+        .task-detail { margin-top: 15px; padding-top: 15px; border-top: 1px solid #f0f2f5; display: none; }
+        .task-detail.open { display: block; }
+        .timer-display { font-size: 32px; font-weight: bold; margin: 15px 0; text-align: center; font-variant-numeric: tabular-nums; }
+        .controls { display: flex; gap: 10px; justify-content: center; margin-bottom: 15px; }
+        .controls button { flex: 1; max-width: 100px; padding: 12px 0; font-size: 15px; font-weight: bold; border: 1px solid #ccc; border-radius: 8px; background: #fff; }
+        .controls button:disabled { background: #ebebeb; color: #999; border-color: #ddd; }
+        .log-list { font-size: 13px; color: #555; background: #f8f9fa; padding: 10px; border-radius: 8px; max-height: 120px; overflow-y: auto; }
+        .log-item { margin-top: 4px; }
+        .delete-btn { background: #ffebe6; color: #bf2600; border: none; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; }
+
+        .history-container { background: #fff; border: 1px solid #e1e4e8; border-radius: 12px; padding: 15px; margin-bottom: 30px; }
+        .history-date-group { margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
+        .history-date-group:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+        .history-date-title { font-weight: bold; font-size: 14px; color: #0056b3; margin-bottom: 5px; }
+        .history-task-item { font-size: 14px; display: flex; justify-content: space-between; padding: 4px 0; color: #444; }
+        .history-task-time { font-weight: bold; color: #666; }
+        .no-history { font-size: 14px; color: #999; text-align: center; padding: 10px 0; }
+
+        .init-btn-container { text-align: center; margin-bottom: 15px; }
+        .init-btn { background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h1>Daily Task & Timer</h1>
+
+    <div class="init-btn-container">
+        <button class="init-btn" onclick="if(confirm('すべてのタスクと履歴が削除されます。よろしいですか？')){localStorage.clear(); location.reload();}">全データ初期化</button>
+    </div>
+
+    <div class="input-container">
+        <div class="input-row">
+            <input type="text" id="taskInput" placeholder="今日のタスクを入力...">
+            <button onclick="addTask()">追加</button>
+        </div>
+        <div class="checkbox-row">
+            <input type="checkbox" id="repeatCheckbox">
+            <label for="repeatCheckbox">毎日このタスクを繰り返す</label>
+        </div>
+    </div>
+
+    <div class="section-title">今日のタスク</div>
+    <div id="taskList"></div>
+
+    <div class="section-title">過去の履歴</div>
+    <div class="history-container" id="historyList"></div>
+
+
+    <script>
+        let tasks = JSON.parse(localStorage.getItem('myRoutineTasks')) || [];
+        let lastOpenDate = localStorage.getItem('lastOpenDate') || "";
+        
+        let timerInterval = null;
+        let activeTaskId = null;
+
+        function getTodayString() {
+            const now = new Date();
+            return now.toLocaleDateString('sv-SE'); 
+        }
+
+        function getFormattedTime() {
+            const now = new Date();
+            return now.toTimeString().split(' ')[0];
+        }
+
+        function formatSeconds(totalSeconds) {
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            return `${h}時間${m}分${s}秒`;
+        }
+
+        function checkDateChange() {
+            const today = getTodayString();
+
+            if (lastOpenDate === "") {
+                lastOpenDate = today;
+                localStorage.setItem('lastOpenDate', lastOpenDate);
+                saveAndRender();
+                return;
+            }
+
+            if (lastOpenDate !== today) {
+                // 1. 過去の繰り返しタスクから「一意のタイトル」を抽出（重複増殖対策）
+                const recurringTitles = [...new Set(tasks.filter(t => t.isRecurring).map(t => t.title))];
+                
+                // 2. 抽出したタイトルを元に、今日用の新しいタスクを作成
+                const newTodayTasks = recurringTitles.map(title => {
+                    return {
+                        id: Date.now() + Math.random(),
+                        title: title,
+                        status: 'unstarted',
+                        totalTime: 0,
+                        logs: [],
+                        isRecurring: true,
+                        isOpen: false,
+                        createdAt: today
+                    };
+                });
+
+                // 3. 前日までの古いタスクは、履歴として残すために「isRecurringフラグをfalse」に更新
+                tasks = tasks.map(t => {
+                    if (t.createdAt !== today && t.isRecurring) {
+                        return { ...t, isRecurring: false };
+                    }
+                    return t;
+                });
+
+                // 4. 既存タスク（履歴化したもの）に、今日の新しいタスクをマージ
+                tasks = [...tasks, ...newTodayTasks];
+            }
+
+            lastOpenDate = today;
+            localStorage.setItem('lastOpenDate', lastOpenDate);
+            saveAndRender();
+        }
+
+        // 起動時に日付変更チェックを走らせる
+        checkDateChange();
+
+        function addTask() {
+            const input = document.getElementById('taskInput');
+            const repeatCheckbox = document.getElementById('repeatCheckbox');
+            const title = input.value.trim();
+            if (!title) return;
+
+            const newTask = {
+                id: Date.now(),
+                title: title,
+                status: 'unstarted',
+                totalTime: 0,
+                logs: [],
+                isRecurring: repeatCheckbox.checked,
+                isOpen: true,
+                createdAt: getTodayString()
+            };
+
+            tasks.push(newTask);
+            saveAndRender();
+            
+            input.value = '';
+            repeatCheckbox.checked = false;
+            input.blur();
+        }
+
+        function saveAndRender() {
+            localStorage.setItem('myRoutineTasks', JSON.stringify(tasks));
+            renderTasks();
+            renderHistory();
+        }
+
+        function renderTasks() {
+            const taskList = document.getElementById('taskList');
+            taskList.innerHTML = '';
+            const today = getTodayString();
+
+            const todayTasks = tasks.filter(t => t.createdAt === today);
+
+            if (todayTasks.length === 0) {
+                taskList.innerHTML = '<div class="no-history">今日のタスクはまだありません。</div>';
+                return;
+            }
+
+            todayTasks.forEach(task => {
+                let statusText = '未着手';
+                let statusClass = '';
+                if (task.status === 'running') { statusText = '計測中'; statusClass = 'status-running'; }
+                if (task.status === 'paused') { statusText = '一時中断'; }
+                if (task.status === 'completed') { statusText = '完了'; statusClass = 'status-completed'; }
+
+                const timeString = formatSeconds(task.totalTime);
+                const recurringBadge = task.isRecurring ? '<span class="recurring-badge">毎日</span>' : '';
+
+                const item = document.createElement('div');
+                item.className = 'task-item';
+                item.innerHTML = `
+                    <div class="task-header" onclick="toggleDetail(${task.id})">
+                        <span class="task-title">${task.title}${recurringBadge}</span>
+                        <div class="header-right">
+                            <span class="task-status ${statusClass}">${statusText}</span>
+                            <button class="delete-btn" onclick="deleteTask(event, ${task.id})">削除</button>
+                        </div>
+                    </div>
+                    <div class="task-detail ${task.isOpen ? 'open' : ''}">
+                        <div class="timer-display">${timeString}</div>
+                        <div class="controls">
+                            <button onclick="startTimer(${task.id})" ${task.status === 'running' || task.status === 'completed' ? 'disabled' : ''}>開始</button>
+                            <button onclick="pauseTimer(${task.id})" ${task.status !== 'running' ? 'disabled' : ''}>中断</button>
+                            <button onclick="stopTimer(${task.id})" ${task.status === 'completed' ? 'disabled' : ''}>終了</button>
+                        </div>
+                        <div class="log-list">
+                            <strong>【履歴】</strong>
+                            ${task.logs.map(log => `<div class="log-item">${log}</div>`).join('')}
+                        </div>
+                    </div>
+                `;
+                taskList.appendChild(item);
+            });
+        }
+
+        function renderHistory() {
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = '';
+            const today = getTodayString();
+
+            const pastTasks = tasks.filter(t => t.createdAt !== today);
+
+            if (pastTasks.length === 0) {
+                historyList.innerHTML = '<div class="no-history">過去の履歴はありません。</div>';
+                return;
+            }
+
+            const groups = {};
+            pastTasks.forEach(task => {
+                if (!groups[task.createdAt]) {
+                    groups[task.createdAt] = [];
+                }
+                groups[task.createdAt].push(task);
+            });
+
+            const sortedDates = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+
+            sortedDates.forEach(date => {
+                const dateGroup = document.createElement('div');
+                dateGroup.className = 'history-date-group';
+                
+                let html = `<div class="history-date-title">${date}</div>`;
+                
+                groups[date].forEach(task => {
+                    const timeString = formatSeconds(task.totalTime);
+                    html += `
+                        <div class="history-task-item">
+                            <span>・ ${task.title}</span>
+                            <span class="history-task-time">${timeString}</span>
+                        </div>
+                    `;
+                });
+                
+                dateGroup.innerHTML = html;
+                historyList.appendChild(dateGroup);
+            });
+        }
+
+        function toggleDetail(id) {
+            tasks = tasks.map(t => t.id === id ? { ...t, isOpen: !t.isOpen } : t);
+            saveAndRender();
+        }
+
+        function startTimer(id) {
+            if (activeTaskId && activeTaskId !== id) {
+                alert('他のタスクが計測中です。中断または終了させてください。');
+                return;
+            }
+            const timeNow = getFormattedTime();
+            tasks = tasks.map(t => {
+                if (t.id === id) {
+                    const action = t.status === 'paused' ? '再開' : '開始';
+                    t.status = 'running';
+                    t.logs.push(`${timeNow} [${action}]`);
+                }
+                return t;
+            });
+            activeTaskId = id;
+            saveAndRender();
+
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                tasks = tasks.map(t => {
+                    if (t.id === activeTaskId) t.totalTime += 1;
+                    return t;
+                });
+                renderTasks();
+            }, 1000);
+        }
+
+        function pauseTimer(id) {
+            clearInterval(timerInterval);
+            activeTaskId = null;
+            const timeNow = getFormattedTime();
+            tasks = tasks.map(t => {
+                if (t.id === id) {
+                    t.status = 'paused';
+                    t.logs.push(`${timeNow} [中断]`);
+                }
+                return t;
+            });
+            saveAndRender();
+        }
+
+        function stopTimer(id) {
+            clearInterval(timerInterval);
+            if (activeTaskId === id) activeTaskId = null;
+            const timeNow = getFormattedTime();
+            tasks = tasks.map(t => {
+                if (t.id === id) {
+                    t.status = 'completed';
+                    t.logs.push(`${timeNow} [終了]`);
+                }
+                return t;
+            });
+            saveAndRender();
+        }
+
+        function deleteTask(event, id) {
+            event.stopPropagation();
+            if (!confirm('このタスクを削除しますか？\n（今日のリストから消去されます）')) return;
+            if (activeTaskId === id) {
+                clearInterval(timerInterval);
+                activeTaskId = null;
+            }
+            tasks = tasks.filter(t => t.id !== id);
+            saveAndRender();
+        }
+    </script>
+</body>
+</html>
