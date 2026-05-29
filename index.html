@@ -92,7 +92,10 @@
         
         let timerInterval = null;
         let activeTaskId = null;
-        let lastTimestamp = null; 
+        
+        // 端末格差をなくすための新しい管理変数
+        let startTimeStamp = null; 
+        let baseTotalTime = 0; 
 
         function getTodayString() {
             const now = new Date();
@@ -293,6 +296,11 @@
                 return;
             }
             const timeNow = getFormattedTime();
+            
+            // 現在選択されたタスクの、これまでの合計時間をベースにする
+            const currentTask = tasks.find(t => t.id === id);
+            baseTotalTime = currentTask ? currentTask.totalTime : 0;
+
             tasks = tasks.map(t => {
                 if (t.id === id) {
                     let action = '開始';
@@ -306,31 +314,30 @@
             });
             activeTaskId = id;
             
-            lastTimestamp = Date.now(); 
+            // 【端末格差対策】開始ボタンを押した「絶対時刻」をミリ秒で完全ロック
+            startTimeStamp = Date.now(); 
             saveAndRender();
 
             clearInterval(timerInterval);
             timerInterval = setInterval(() => {
-                const currentTimestamp = Date.now();
-                // 【修正箇所】Math.roundではなくMath.floor(切り捨て)を使い、確実に1000ミリ秒(1秒)以上経過したときだけ秒数を加算
-                const deltaSeconds = Math.floor((currentTimestamp - lastTimestamp) / 1000);
+                // 「現在の時刻」と「開始した時刻」の純粋な差分だけを計算する
+                const passedSeconds = Math.floor((Date.now() - startTimeStamp) / 1000);
                 
-                if (deltaSeconds >= 1) {
-                    tasks = tasks.map(t => {
-                        if (t.id === activeTaskId) t.totalTime += deltaSeconds;
-                        return t;
-                    });
-                    // 次の基準時間を「経過した秒数分」だけ正確に進める
-                    lastTimestamp += deltaSeconds * 1000; 
-                    renderTasks();
-                }
-            }, 200); // チェック頻度をさらに細かくし、カクつきをなくしつつ正確性を担保
+                tasks = tasks.map(t => {
+                    if (t.id === activeTaskId) {
+                        // 開始時点の秒数に、正確な経過秒数を足す（ブラウザがサボってもズレない）
+                        t.totalTime = baseTotalTime + passedSeconds;
+                    }
+                    return t;
+                });
+                renderTasks();
+            }, 250); // 1秒間に4回高頻度リフレッシュし、表示を常に最新化
         }
 
         function pauseTimer(id) {
             clearInterval(timerInterval);
             activeTaskId = null;
-            lastTimestamp = null;
+            startTimeStamp = null;
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
@@ -345,7 +352,7 @@
         function stopTimer(id) {
             clearInterval(timerInterval);
             if (activeTaskId === id) activeTaskId = null;
-            lastTimestamp = null;
+            startTimeStamp = null;
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
@@ -363,7 +370,7 @@
             if (activeTaskId === id) {
                 clearInterval(timerInterval);
                 activeTaskId = null;
-                lastTimestamp = null;
+                startTimeStamp = null;
             }
             tasks = tasks.filter(t => t.id !== id);
             saveAndRender();
