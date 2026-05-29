@@ -121,10 +121,8 @@
             }
 
             if (lastOpenDate !== today) {
-                // 1. 過去の繰り返しタスクから「一意のタイトル」を抽出（重複増殖対策）
                 const recurringTitles = [...new Set(tasks.filter(t => t.isRecurring).map(t => t.title))];
                 
-                // 2. 抽出したタイトルを元に、今日用の新しいタスクを作成
                 const newTodayTasks = recurringTitles.map(title => {
                     return {
                         id: Date.now() + Math.random(),
@@ -138,7 +136,6 @@
                     };
                 });
 
-                // 3. 前日までの古いタスクは、履歴として残すために「isRecurringフラグをfalse」に更新
                 tasks = tasks.map(t => {
                     if (t.createdAt !== today && t.isRecurring) {
                         return { ...t, isRecurring: false };
@@ -146,7 +143,6 @@
                     return t;
                 });
 
-                // 4. 既存タスク（履歴化したもの）に、今日の新しいタスクをマージ
                 tasks = [...tasks, ...newTodayTasks];
             }
 
@@ -155,7 +151,6 @@
             saveAndRender();
         }
 
-        // 起動時に日付変更チェックを走らせる
         checkDateChange();
 
         function addTask() {
@@ -211,6 +206,13 @@
                 const timeString = formatSeconds(task.totalTime);
                 const recurringBadge = task.isRecurring ? '<span class="recurring-badge">毎日</span>' : '';
 
+                // 【修正ポイント1】現在計測中（running）のときだけ「開始」ボタンを無効化する
+                const isRunning = task.status === 'running';
+                const isCompleted = task.status === 'completed';
+                
+                // 終了状態ならボタンのテキストを「再開」にする
+                const startBtnText = isCompleted ? '再開' : '開始';
+
                 const item = document.createElement('div');
                 item.className = 'task-item';
                 item.innerHTML = `
@@ -224,9 +226,9 @@
                     <div class="task-detail ${task.isOpen ? 'open' : ''}">
                         <div class="timer-display">${timeString}</div>
                         <div class="controls">
-                            <button onclick="startTimer(${task.id})" ${task.status === 'running' || task.status === 'completed' ? 'disabled' : ''}>開始</button>
-                            <button onclick="pauseTimer(${task.id})" ${task.status !== 'running' ? 'disabled' : ''}>中断</button>
-                            <button onclick="stopTimer(${task.id})" ${task.status === 'completed' ? 'disabled' : ''}>終了</button>
+                            <button onclick="startTimer(${task.id})" ${isRunning ? 'disabled' : ''}>${startBtnText}</button>
+                            <button onclick="pauseTimer(${task.id})" ${!isRunning ? 'disabled' : ''}>中断</button>
+                            <button onclick="stopTimer(${task.id})" ${isCompleted ? 'disabled' : ''}>終了</button>
                         </div>
                         <div class="log-list">
                             <strong>【履歴】</strong>
@@ -294,7 +296,11 @@
             const timeNow = getFormattedTime();
             tasks = tasks.map(t => {
                 if (t.id === id) {
-                    const action = t.status === 'paused' ? '再開' : '開始';
+                    // 【修正ポイント2】元の状態に合わせてログのテキストを綺麗に残す
+                    let action = '開始';
+                    if (t.status === 'paused') action = '再開';
+                    if (t.status === 'completed') action = '終了から再開';
+                    
                     t.status = 'running';
                     t.logs.push(`${timeNow} [${action}]`);
                 }
